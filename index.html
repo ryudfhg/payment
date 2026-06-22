@@ -149,6 +149,7 @@ footer{text-align:center;color:var(--dim);font-size:10px;margin-top:24px;font-fa
   <button class="btn-io export" id="btnExport">↓ JSONエクスポート</button>
   <button class="btn-io import" id="btnImport">↑ JSONインポート</button>
   <input type="file" id="importFile" accept=".json">
+  <span id="storageStatus" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dim);margin-left:4px;">💾 自動保存：有効</span>
 </div>
 
 <div class="tab-nav">
@@ -315,8 +316,11 @@ footer{text-align:center;color:var(--dim);font-size:10px;margin-top:24px;font-fa
     <div class="ptw">
       <table>
         <thead><tr>
-          <th>年目</th><th>基本給</th><th>総支給/月</th><th>手取り/月</th>
-          <th>住民税/月</th><th>ボーナス手取</th><th>年収額面</th><th>年収手取</th>
+          <th>年目</th>
+          <th>年収（額面）</th><th>年収（手取）</th>
+          <th>月総支給</th><th>月手取</th>
+          <th>ボーナス額面</th><th>ボーナス手取</th>
+          <th>年税金合計</th>
         </tr></thead>
         <tbody id="projTable"></tbody>
       </table>
@@ -970,16 +974,20 @@ function updateProjection(){
     var r2 = calcSalary(curBase, p2.otH, p2.wh, p2.otR, p2.als, cfg, prevG2||0);
     var tb2 = r2.gross*p2.bS + r2.gross*p2.bW + p2.bE;
     var bn2 = calcBonusNet(tb2, r2, cfg);
+    var annGross2 = r2.gross*12 + tb2;
+    var annNet2   = r2.net*12   + bn2;
+    var annTax2   = (r2.totalD - r2.soc) * 12; // 所得税+住民税の年計
     var tr = document.createElement('tr');
+    var m = function(v){ return (v/10000).toFixed(1)+'万'; };
     tr.innerHTML =
       '<td>'+y2+'年目</td>'+
-      '<td>'+Math.round(curBase).toLocaleString()+'円</td>'+
-      '<td>'+Math.round(r2.gross).toLocaleString()+'円</td>'+
-      '<td class="tg">'+Math.round(r2.net).toLocaleString()+'円</td>'+
-      '<td class="to">'+Math.round(r2.residenceTax).toLocaleString()+'円</td>'+
-      '<td>'+Math.round(bn2).toLocaleString()+'円</td>'+
-      '<td>'+Math.round((r2.gross*12+tb2)/10000)+'万円</td>'+
-      '<td class="tg">'+Math.round((r2.net*12+bn2)/10000)+'万円</td>';
+      '<td>'+m(annGross2)+'</td>'+
+      '<td class="tg">'+m(annNet2)+'</td>'+
+      '<td>'+m(r2.gross)+'</td>'+
+      '<td class="tg">'+m(r2.net)+'</td>'+
+      '<td>'+m(tb2)+'</td>'+
+      '<td class="tg">'+m(bn2)+'</td>'+
+      '<td class="to">'+m(annTax2)+'</td>';
     tbody.appendChild(tr);
   }
 }
@@ -1181,14 +1189,58 @@ document.getElementById('importFile').addEventListener('change', function(){
 });
 
 // ============================================================
+// LOCAL STORAGE — 自動保存・復元
+// ============================================================
+var LS_KEY = 'salaryForecastData_v1';
+
+function saveToStorage(){
+  try {
+    var data = collectAllData();
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+    var now = new Date();
+    var hm = ('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+    var el = document.getElementById('storageStatus');
+    if(el) el.textContent = '💾 ' + hm + ' 保存済み';
+  } catch(e){
+    var el = document.getElementById('storageStatus');
+    if(el) el.textContent = '⚠ 保存失敗';
+  }
+}
+
+function loadFromStorage(){
+  try {
+    var raw = localStorage.getItem(LS_KEY);
+    if(!raw) return false;
+    var data = JSON.parse(raw);
+    applyAllData(data);
+    return true;
+  } catch(e){ return false; }
+}
+
+// ============================================================
 // INIT
 // ============================================================
 (function init(){
-  // Save year 1 defaults
+  // Save year 1 defaults first so collectAllData works
   saveCurrentYearData(1);
   buildYearBtns();
   buildRaisePanelIfNeeded();
-  recalcAll();
+
+  // Try to restore saved data; fall back to defaults
+  if(!loadFromStorage()){
+    recalcAll();
+  }
+
+  // Auto-save on any input change (debounced 600ms)
+  var saveTimer = null;
+  function debouncedSave(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveToStorage, 600);
+  }
+
+  // Attach to document-level input/change events (catches all inputs including dynamic ones)
+  document.addEventListener('input',  debouncedSave);
+  document.addEventListener('change', debouncedSave);
 })();
 </script>
 </body>
